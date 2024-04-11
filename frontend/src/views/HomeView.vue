@@ -7,12 +7,12 @@
         </div>
         <div class="flex-1 flex flex-col h-full overflow-auto">
           <h4 class="px-4 text-sm font-medium">Grammar Corrections</h4>
-          <div v-if="loading_grammar" class="text-center my-4">
+            <div v-if="loadingGrammar" class="text-center my-4">
             <v-progress-circular :size="50" color="primary" indeterminate></v-progress-circular>
           </div>
           <ul class="px-4 text-sm font-medium flex-1">
             <li v-for="(item, idx) in corrections" :key="idx">
-              {{ item.output_text }}
+              {{ (item as any).output_text }}
             </li>
           </ul>
           <button
@@ -22,17 +22,6 @@
             <span>Check for Grammar</span>
           </button>
           <div>
-            <ul class="px-4 pb-4 text-sm font-medium">
-              <li v-for="(item, idx) in navsFooter" :key="idx">
-                <a
-                  :href="item.href"
-                  class="flex items-center gap-x-2 text-gray-600 p-2 rounded-lg hover:bg-gray-50 active:bg-gray-100 duration-150"
-                >
-                  <div class="text-gray-500" v-html="item.icon"></div>
-                  {{ item.name }}
-                </a>
-              </li>
-            </ul>
             <div class="py-4 px-4 border-t">
               <div class="flex items-center gap-x-4">
                 <div>
@@ -46,91 +35,98 @@
     </aside>
     <main class="p-16">
       <h2 class="text-2xl font-semibold text-gray-500 text-center">Text Editor</h2>
-      <EditorContent :editor="editor" class="h-screen w-full" />
+      <EditorContent :editor="editor || undefined" v-if="editor" class="h-screen w-full" />
     </main>
   </div>
 </template>
+<!-- <script lang="ts">
+import { Editor, EditorContent, useEditor } from '@tiptap/vue-3'
+import StarterKit from '@tiptap/starter-kit'
+import { defineComponent } from '@vue/runtime-core'
 
+export default defineComponent({
+  components: {
+    EditorContent,
+  },
+  setup() {
+    const editor = useEditor({
+      content: '<p>I’m running tiptap with Vue.js. 🎉</p>',
+      extensions: [
+      ],
+    })
+    return {
+      editor
+    }
+  }
+});
+</script> -->
 <script lang="ts">
-import Code from '@tiptap/extension-code'
+import { ref, onUnmounted } from 'vue'
+import { defineComponent } from 'vue'
+import { useEditor, EditorContent } from '@tiptap/vue-3'
+
 import Document from '@tiptap/extension-document'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
+import Code from '@tiptap/extension-code'
 import Typography from '@tiptap/extension-typography'
-import { Editor, EditorContent } from '@tiptap/vue-3'
 
-import { ColorHighlighter } from './ColorHighlighter.ts'
-import { SmilieReplacer } from './SmilieReplacer.ts'
-
-import SidebarComponent from '../components/home/SidebarComponent.vue'
-
-export default {
+export default defineComponent({
   components: {
     EditorContent,
-    SidebarComponent
   },
 
-  data() {
-    return {
-      editor: null,
-      corrections: [],
-      navsFooter: [],
-      loading_grammar: false
-    }
-  },
-  methods: {
-    async checkGrammar() {
-      this.loading_grammar = true
-      this.corrections = []
-      const content = this.editor.getText()
-      // Use regular expressions to split the text into sentences
-      const sentences = content.match(/[^.!?]+[.!?]+/g)
-      // Create an array of promises for each fetch request
-      const fetchPromises = sentences.map(async (text) => {
-        const response = await fetch('http://127.0.0.1:5000/process_text', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ text })
+  setup() {
+    const editor = useEditor({
+        extensions: [Document, Paragraph, Text, Code, Typography],
+        content: `
+          <p>He goed to the store yesterday and buyed some apple.</p>
+          <p>Me and her is going to the cinemas tonight to watch a moovie.</p>
+          <p>The mans in the park was playing football and haves a lot of fun.</p>
+          <p>I eated a sandvich for lunch, but it was not very tasteful.</p>
+          <p>She don't likes to swimm in the oshun because she is afraided of sharks.</p>
+        `
+      });
+    const corrections = ref<unknown[]>([])
+    const loadingGrammar = ref(false)
+
+    const checkGrammar = async () => {
+      loadingGrammar.value = true
+      corrections.value = []
+      const content = editor.value?.getText() || ''
+      const sentences = content.match(/[^.!?]+[.!?]+/g) || []
+      try {
+        const fetchPromises = sentences.map(async (text) => {
+          const response = await fetch('http://127.0.0.1:5000/process_text', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text })
+          })
+          return response.json()
         })
-        const data = await response.json()
-        return data
-      })
-      // Wait for all fetch requests to complete
-      const corrections = await Promise.all(fetchPromises)
-      // Update the corrections array
-      this.corrections = corrections
-      this.loading_grammar = false
+        corrections.value = await Promise.all(fetchPromises)
+      } catch (error) {
+        console.error('Grammar check failed:', error)
+      } finally {
+        loadingGrammar.value = false
+      }
     }
-  },
 
-  mounted() {
-    this.editor = new Editor({
-      extensions: [Document, Paragraph, Text, Code, Typography, ColorHighlighter, SmilieReplacer],
-      content: `
-        <p>
-          He goed to the store yesterday and buyed some apple.
-        </p>
-        <p>
-          Me and her is going to the cinemas tonight to watch a moovie.
-        </p>
-        <p>
-          The mans in the park was playing football and haves a lot of fun.
-        </p>
-        <p>
-          I eated a sandvich for lunch, but it was not very tasteful.
-        </p>
-        <p>She don't likes to swimm in the oshun because she is afraided of sharks.</p>
-      `
+    onUnmounted(() => {
+      editor.value?.destroy()
     })
-  },
 
-  beforeUnmount() {
-    this.editor.destroy()
+    return {
+      editor,
+      corrections,
+      loadingGrammar,
+      checkGrammar,
+    }
   }
-}
+})
 </script>
+
+
 
 <style lang="scss">
 /* Enhanced editor styles for full page width and height with padding */
